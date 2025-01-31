@@ -22,7 +22,6 @@ require("dotenv/config");
 const app = (0, express_1.default)();
 app.use((0, cors_1.default)());
 app.use(body_parser_1.default.json());
-// MongoDB Connection
 mongoose_1.default.connect('mongodb://localhost:27017/ats_scanner');
 const jobSchema = new mongoose_1.default.Schema({
     description: String,
@@ -33,8 +32,11 @@ const openai = new openai_1.default({ apiKey: process.env.OPENAI_API_KEY });
 app.post('/upload-resume', (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     const { resume } = req.body;
     try {
-        // Save the resume in MongoDB
-        const newJob = new Job({ description: 'Original Resume', resume });
+        const cleanedResume = normalizeText(resume);
+        const newJob = new Job({
+            description: 'Original Resume',
+            resume: cleanedResume,
+        });
         yield newJob.save();
         res.json({ message: 'Resume saved successfully!' });
     }
@@ -52,7 +54,23 @@ app.post('/scan', (req, res) => __awaiter(void 0, void 0, void 0, function* () {
                 .json({ error: 'No original resume found. Please upload one first.' });
             return;
         }
-        const prompt = `Here is my original resume:\n${originalJob.resume}\n\nTweak my resume to match the following job description:\n${description}`;
+        const prompt = `I need to generate an ATS-optimized resume tailored for a specific job. Below are two inputs:
+My Current Resume: ${originalJob.resume}
+Job Description: ${description}
+
+Resume Requirements:
+
+Professional Summary (110 words): Craft a compelling summary highlighting my expertise, key skills, and relevant experience. Use the most impactful keywords from the job description.
+Experience:
+Company 1 & 2 (180-200 words each): Detail my contributions, achievements, and impact. Ensure it aligns with the job description and includes relevant keywords.
+Company 3 (40-50 words): Keep concise but highlight key responsibilities.
+Projects and Contributions (50-70 words): Summarize key projects, technologies used, and contributions aligning with the job description.
+Core Competencies (80-120 words): List relevant skills and expertise using industry keywords from the job description.
+Certifications and Training: Do not modify. Keep the same wording as my current resume.
+Key Competencies (50-60 words): Focus on job-relevant competencies.
+Education: Do not change; keep as is.
+WHY <Company Name>? (60-80 words): Write a persuasive response on why I am interested in this company, referencing their values, culture, and role alignment.
+Ensure the resume layout remains identical to my original resume while optimizing content for ATS parsing. Prioritize clarity, relevance, and action-driven language. Maintain a professional and concise tone.`;
         const response = yield openai.chat.completions.create({
             model: 'gpt-4',
             messages: [{ role: 'system', content: prompt }],
@@ -67,116 +85,157 @@ app.post('/scan', (req, res) => __awaiter(void 0, void 0, void 0, function* () {
 }));
 const normalizeText = (text) => {
     return text
-        .replace(/[^\x00-\x7F]/g, '') // ✅ Remove corrupted non-ASCII characters
-        .replace(/\n•/g, '\n-') // ✅ Replace Unicode bullet points with dashes
-        .replace(/\s+/g, ' ') // ✅ Remove extra spaces
+        .replace(/[^\x00-\x7F]/g, '')
+        .replace(/\n•/g, '\n-')
+        .replace(/\s+/g, ' ')
         .trim();
 };
-app.post('/export-pdf', (req, res) => {
-    console.log('Incoming PDF Export Request:', req.body); // Debugging log
-    const { summary, experience, projects, skills, education, whyNbc } = req.body;
-    if (!summary || !experience || !skills || !education) {
+const USER_NAME = process.env.USER_NAME || 'Your Name';
+const USER_LOCATION = process.env.USER_LOCATION || 'Location';
+const GITHUB_URL = process.env.GITHUB_URL || 'https://github.com/';
+const PORTFOLIO_URL = process.env.PORTFOLIO_URL || 'https://yourportfolio.com';
+const LINKEDIN_URL = process.env.LINKEDIN_URL || 'https://linkedin.com';
+const EMAIL = process.env.EMAIL || 'your@email.com';
+const PHONE = process.env.PHONE || '000-000-0000';
+const USER_TITLE = process.env.PHONE || 'WEB DEVELOPER';
+app.post('/export-pdf', (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    console.log('📥 Received Resume Data:', JSON.stringify(req.body, null, 2));
+    const { summary, experience, projects, coreCompetencies, certifications, keyCompetencies, education, whyCompany, } = req.body;
+    if (!summary || !experience || !coreCompetencies || !education) {
+        console.error('❌ Missing required resume sections:', {
+            summary,
+            experience,
+            coreCompetencies,
+            education,
+        });
         res.status(400).json({ error: 'Missing required resume sections.' });
         return;
     }
-    // Set response headers for PDF download
-    res.setHeader('Content-Disposition', 'attachment; filename="resume.pdf"');
-    res.setHeader('Content-Type', 'application/pdf');
     const doc = new pdfkit_1.default({
         size: 'A4',
-        margins: { top: 50, left: 50, right: 50, bottom: 50 },
+        margins: { top: 40, left: 50, right: 50, bottom: 40 },
     });
+    res.setHeader('Content-Disposition', 'attachment; filename="optimized_resume.pdf"');
+    res.setHeader('Content-Type', 'application/pdf');
     doc.pipe(res);
+    // Header Section
     doc
         .font('Helvetica-Bold')
-        .fontSize(22)
+        .fontSize(20)
         .fillColor('#333')
-        .text('KINJAL MUDGAL . FRONT END ENGINEER', { align: 'center' });
-    doc.moveDown(0.5);
-    doc
-        .font('Helvetica')
-        .fontSize(12)
-        .fillColor('#444')
-        .text('Jersey City, NJ - GitHub - Portfolio - linkedin.com/in/kinjalmudgal - kinjalmudgal89@gmail.com - (408) 799-4827', { align: 'center' });
-    doc.moveDown(1);
-    doc
-        .font('Helvetica-Bold')
-        .fontSize(14)
-        .fillColor('#0056b3')
-        .text('SUMMARY', { underline: true });
-    doc.moveDown(0.5);
-    doc
-        .font('Helvetica')
-        .fontSize(12)
-        .fillColor('#000')
-        .text(normalizeText(summary));
-    doc.moveDown();
-    doc
-        .font('Helvetica-Bold')
-        .fontSize(14)
-        .fillColor('#0056b3')
-        .text('PROFESSIONAL EXPERIENCE', { underline: true });
-    doc.moveDown(0.5);
-    doc
-        .font('Helvetica')
-        .fontSize(12)
-        .fillColor('#000')
-        .text(normalizeText(experience));
-    doc.moveDown();
-    doc
-        .font('Helvetica-Bold')
-        .fontSize(14)
-        .fillColor('#0056b3')
-        .text('PROJECTS', { underline: true });
-    doc.moveDown(0.5);
-    doc
-        .font('Helvetica')
-        .fontSize(12)
-        .fillColor('#000')
-        .text(normalizeText(projects));
-    doc.moveDown();
-    doc
-        .font('Helvetica-Bold')
-        .fontSize(14)
-        .fillColor('#0056b3')
-        .text('SKILLS', { underline: true });
-    doc.moveDown(0.5);
-    doc
-        .font('Helvetica')
-        .fontSize(12)
-        .fillColor('#000')
-        .text(normalizeText(skills));
-    doc.moveDown();
-    doc
-        .font('Helvetica-Bold')
-        .fontSize(14)
-        .fillColor('#0056b3')
-        .text('EDUCATION', { underline: true });
-    doc.moveDown(0.5);
-    doc
-        .font('Helvetica')
-        .fontSize(12)
-        .fillColor('#000')
-        .text(normalizeText(education));
-    if (whyNbc) {
-        doc.moveDown();
+        .text(`${USER_NAME} · ${USER_TITLE}`, { align: 'left' });
+    // Contact Information with hyperlinks
+    const contactLine = [
+        USER_LOCATION,
+        { text: 'GitHub', link: GITHUB_URL },
+        { text: 'Portfolio', link: PORTFOLIO_URL },
+        { text: 'LinkedIn', link: LINKEDIN_URL },
+        EMAIL,
+        PHONE,
+    ];
+    let contactY = doc.y;
+    doc.font('Helvetica').fontSize(10).fillColor('#444');
+    contactLine.forEach((item, index) => {
+        if (typeof item === 'string') {
+            doc.text(index === 0 ? item : `- ${item}`, {
+                continued: index !== contactLine.length - 1,
+                link: item.startsWith('http') ? item : undefined,
+                underline: item.startsWith('http'),
+            });
+        }
+        else {
+            doc.text(index === 0 ? item.text : `- ${item.text}`, {
+                continued: index !== contactLine.length - 1,
+                link: item.link,
+                underline: true,
+            });
+        }
+    });
+    doc.moveDown(1.5);
+    // Improved section handler with proper formatting
+    const addSection = (title, content) => {
+        if (!content || content.trim() === 'N/A')
+            return;
         doc
+            .moveDown(0.8)
             .font('Helvetica-Bold')
-            .fontSize(14)
-            .fillColor('#0056b3')
-            .text('WHY NBC UNIVERSAL?', { underline: true });
-        doc.moveDown(0.5);
-        doc
-            .font('Helvetica')
             .fontSize(12)
-            .fillColor('#000')
-            .text(normalizeText(whyNbc));
+            .fillColor('#333')
+            .text(title.toUpperCase(), { underline: true })
+            .moveDown(0.5);
+        doc.font('Helvetica').fontSize(11).fillColor('#000');
+        const lines = content.split('\n').filter((line) => line.trim() !== '');
+        lines.forEach((line) => {
+            const isExperienceSection = [
+                'PROFESSIONAL EXPERIENCE',
+                'EDUCATION',
+            ].includes(title);
+            const isBullet = line.trim().startsWith('•');
+            if (isBullet) {
+                const bulletContent = line.trim().substring(1).trim();
+                const colonIndex = bulletContent.indexOf(':');
+                if (colonIndex !== -1 && title === 'KEY COMPETENCIES') {
+                    const [boldText, regularText] = bulletContent.split(/:(.+)/);
+                    doc
+                        .font('Helvetica-Bold')
+                        .text(`• ${boldText}:`, { indent: 15, continued: true })
+                        .font('Helvetica')
+                        .text(regularText || '');
+                }
+                else {
+                    doc.text(`• ${bulletContent}`, { indent: 15 });
+                }
+            }
+            else if (isExperienceSection) {
+                // Handle company/dates formatting
+                const [positionInfo, dates] = line.split(/(?<=[a-zA-Z])\s*-\s*(?=\d)/);
+                if (positionInfo && dates) {
+                    doc
+                        .font('Helvetica-Bold')
+                        .text(positionInfo.trim(), { continued: true })
+                        .font('Helvetica')
+                        .text(`   ${dates.trim()}`, { align: 'right' });
+                }
+                else {
+                    doc.font('Helvetica-Bold').text(line.trim());
+                }
+            }
+            else if (title === 'EDUCATION') {
+                const [degree, university] = line.split(/(?:\t| {2,})/);
+                doc
+                    .font('Helvetica-Bold')
+                    .text(degree.trim(), { continued: true })
+                    .font('Helvetica')
+                    .text(university.trim(), { align: 'right' });
+            }
+            else {
+                doc.text(line.trim());
+            }
+            doc.moveDown(0.4);
+        });
+        doc.moveDown(0.8);
+    };
+    // Add sections in order
+    addSection('SUMMARY', summary);
+    addSection('PROFESSIONAL EXPERIENCE', experience);
+    addSection('PROJECTS AND CONTRIBUTIONS', projects);
+    addSection('CORE COMPETENCIES & TECHNICAL SKILLS', coreCompetencies);
+    addSection('CERTIFICATION AND TRAINING', certifications);
+    addSection('KEY COMPETENCIES', keyCompetencies);
+    addSection('EDUCATION', education);
+    // Custom Why Company section
+    if (whyCompany) {
+        const [companyName, reason] = whyCompany
+            .split(/[?]/)
+            .map((s) => s.trim());
+        addSection(`WHY ${companyName.toUpperCase()}?`, reason);
     }
-    doc.moveDown(2);
+    // Footer
     doc
-        .fontSize(10)
+        .moveDown(2)
+        .fontSize(9)
         .fillColor('#888')
-        .text('Generated by ATS Resume Scanner', { align: 'center' });
+        .text('Generated by ATS Optimizer', { align: 'center' });
     doc.end();
-});
+}));
 app.listen(5001, () => console.log('Server running on port 5001'));

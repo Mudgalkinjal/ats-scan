@@ -12,38 +12,106 @@ const ResumePage: React.FC = () => {
       return
     }
 
+    const sanitizeText = (text: string) => {
+      return text
+        .replace(/[\u0000-\u001F\u007F-\u009F]/g, '')
+        .replace(/[^\x20-\x7E\n]/g, '')
+        .replace(/\n\s*\n/g, '\n\n')
+        .replace(/\s+/g, ' ')
+        .trim()
+    }
+
+    const formatResumeWithHeadings = (text: string) => {
+      // Define the section headings to look for
+      const sectionHeadings = [
+        'SUMMARY',
+        'PROFESSIONAL EXPERIENCE',
+        'Software Engineer, Full Stack | Ernst & Young - May 2022 - October 2023',
+        'Software Engineer, Front End | Barracuda Networks - March 2016 - January 2021',
+        'ASSOCIATE WEB DEVELOPER | Transworld Technologies - January 2013 - January 2014',
+        'PROJECTS AND CONTRIBUTIONS',
+        'CORE COMPETENCIES & TECHNICAL SKILLS',
+        'CERTIFICATION AND TRAINING',
+        'KEY COMPETENCIES',
+        'EDUCATION',
+        'WHY ',
+      ]
+
+      // Add line breaks before each heading
+      sectionHeadings.forEach((heading) => {
+        const regex = new RegExp(`(${heading})`, 'g') // Match the heading
+        text = text.replace(regex, '\n\n$1\n\n') // Ensure new lines before and after
+      })
+
+      return text.trim()
+    }
+
+    console.log('------')
+    console.log(sanitizeText)
+    console.log('------')
+
     const removeDuplicates = (text: string) => {
       return text
         .split('\n')
-        .filter((line, index, arr) => line !== arr[index - 1]) // ✅ Remove consecutive duplicates
+        .filter((line, index, arr) => line !== arr[index - 1])
         .join('\n')
     }
 
-    const cleanedResumeText = removeDuplicates(resumeText)
+    const cleanedResumeText = formatResumeWithHeadings(
+      sanitizeText(removeDuplicates(resumeText))
+    )
+    console.log('------')
+    console.log(cleanedResumeText)
+    console.log('------')
 
-    const structuredResume = {
-      summary:
-        cleanedResumeText.split('PROFESSIONAL EXPERIENCE')[0]?.trim() || '',
-      experience:
-        cleanedResumeText
-          .split('PROJECTS')[0]
-          .split('PROFESSIONAL EXPERIENCE')[1]
-          ?.trim() || '',
-      projects:
-        cleanedResumeText.split('SKILLS')[0].split('PROJECTS')[1]?.trim() || '',
-      skills:
-        cleanedResumeText.split('EDUCATION')[0].split('SKILLS')[1]?.trim() ||
-        '',
-      education:
-        cleanedResumeText
-          .split('WHY NBC UNIVERSAL?')[0]
-          .split('EDUCATION')[1]
-          ?.trim() || '',
-      whyNbc: cleanedResumeText.split('WHY NBC UNIVERSAL?')[1]?.trim() || '',
+    const extractSection = (text: string, start: string, end?: string) => {
+      const regex = new RegExp(`${start}([\\s\\S]*?)${end ? end : '$'}`, 'i')
+      const match = text.match(regex)
+      return match ? match[1].trim() : ''
     }
 
-    console.log('📄 Cleaned Resume Data:', structuredResume) // Debug log
+    const structuredResume = {
+      summary: extractSection(
+        cleanedResumeText,
+        'SUMMARY',
+        'PROFESSIONAL EXPERIENCE'
+      ),
+      experience: extractSection(
+        cleanedResumeText,
+        'PROFESSIONAL EXPERIENCE',
+        'PROJECTS AND CONTRIBUTIONS'
+      ),
+      projects: extractSection(
+        cleanedResumeText,
+        'PROJECTS AND CONTRIBUTIONS',
+        'CORE COMPETENCIES & TECHNICAL SKILLS'
+      ),
+      coreCompetencies: extractSection(
+        cleanedResumeText,
+        'CORE COMPETENCIES & TECHNICAL SKILLS',
+        'CERTIFICATION AND TRAINING'
+      ),
+      certifications: extractSection(
+        cleanedResumeText,
+        'CERTIFICATION AND TRAINING',
+        'KEY COMPETENCIES'
+      ),
+      keyCompetencies: extractSection(
+        cleanedResumeText,
+        'KEY COMPETENCIES',
+        'EDUCATION'
+      ),
+      education: extractSection(cleanedResumeText, 'EDUCATION', 'WHY '),
+      whyCompany: extractSection(cleanedResumeText, 'WHY '),
+    }
 
+    Object.keys(structuredResume).forEach((key) => {
+      if (!structuredResume[key as keyof typeof structuredResume]) {
+        structuredResume[key as keyof typeof structuredResume] = 'N/A'
+      }
+    })
+
+    console.log('📄 Cleaned Resume Data:', structuredResume)
     try {
       const response = await fetch('http://localhost:5001/export-pdf', {
         method: 'POST',
