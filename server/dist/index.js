@@ -22,62 +22,94 @@ require("dotenv/config");
 const app = (0, express_1.default)();
 app.use((0, cors_1.default)());
 app.use(body_parser_1.default.json());
-mongoose_1.default.connect('mongodb://localhost:27017/ats_scanner');
+mongoose_1.default
+    .connect('mongodb://localhost:27017/ats_scanner')
+    .then(() => console.log('✅ Connected to MongoDB'))
+    .catch((err) => console.error('❌ MongoDB connection error:', err));
 const jobSchema = new mongoose_1.default.Schema({
     description: String,
     resume: String,
+    updatedResume: { type: mongoose_1.default.Schema.Types.Mixed, required: true },
 });
 const Job = mongoose_1.default.model('Job', jobSchema);
 const openai = new openai_1.default({ apiKey: process.env.OPENAI_API_KEY });
-app.post('/upload-resume', (req, res) => __awaiter(void 0, void 0, void 0, function* () {
-    const { resume } = req.body;
-    try {
-        const cleanedResume = normalizeText(resume);
-        const newJob = new Job({
-            description: 'Original Resume',
-            resume: cleanedResume,
-        });
-        yield newJob.save();
-        res.json({ message: 'Resume saved successfully!' });
-    }
-    catch (error) {
-        res.status(500).json({ error: 'Error saving resume' });
-    }
-}));
+const normalizeText = (text) => {
+    const unwantedWords = [
+        'PROFESSIONAL EXPERIENCE',
+        'PROJECTS AND CONTRIBUTIONS',
+        'CERTIFICATION AND TRAINING',
+        'EDUCATION',
+        'WHY COMPANY?',
+    ];
+    const regex = new RegExp(`\\b(${unwantedWords.join('|')})\\b`, 'gi');
+    text
+        .replace(/[^\x00-\x7F]/g, '')
+        .replace(/\n•/g, '\n-')
+        .replace(/\s+/g, ' ')
+        .trim();
+};
+const extractSections = (text) => {
+    const sections = {};
+    const sectionConfig = [
+        { key: 'summary', label: 'Summary' },
+        { key: 'experience1', label: process.env.Company1 || 'Company 1' },
+        { key: 'experience2', label: process.env.Company2 || 'Company 2' },
+        { key: 'experience3', label: process.env.Company3 || 'Company 3' },
+        { key: 'keyCompetencies', label: 'Key Competencies' },
+        { key: 'whyCompany', label: 'WHY ' },
+    ];
+    sectionConfig.forEach((current, index) => {
+        const next = sectionConfig[index + 1];
+        const regex = new RegExp(`${current.label}\\s*[:\\-]*\\s*([\\s\\S]*?)\\s*(?=${(next === null || next === void 0 ? void 0 : next.label) || '$'})`, 'i');
+        const match = text.match(regex);
+        if (match) {
+            let content = match[1].trim();
+            const dateMatch = content.match(/-?\s*([A-Za-z]+\s\d{4}\s*-\s*[A-Za-z]+\s\d{4})/);
+            if (dateMatch) {
+                const dates = dateMatch[1];
+                content = content.replace(dateMatch[0], '').trim();
+                sections[current.key] = `${current.label} (${dates})\n${content}`;
+            }
+            else {
+                sections[current.key] = content;
+            }
+        }
+    });
+    return sections;
+};
 app.post('/scan', (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        const { description } = req.body;
-        const originalJob = yield Job.findOne({ description: 'Original Resume' });
-        if (!originalJob) {
-            res
-                .status(404)
-                .json({ error: 'No original resume found. Please upload one first.' });
+        const { description, resumeText } = req.body;
+        if (!resumeText) {
+            res.status(400).json({ error: 'No resume uploaded' });
             return;
         }
-        const prompt = `I need to generate an ATS-optimized resume tailored for a specific job. Below are two inputs:
-My Current Resume: ${originalJob.resume}
-Job Description: ${description}
-
-Resume Requirements:${process.env.resumeReq}`;
-        const response = yield openai.chat.completions.create({
+        const cleanedResume = normalizeText(resumeText);
+        const prompt = `Generate ATS-optimized resume:\nResume: ${cleanedResume}\nJob: ${description}\nRequirements: ${process.env.resumeReq}`;
+        const completion = yield openai.chat.completions.create({
             model: 'gpt-4',
             messages: [{ role: 'system', content: prompt }],
             max_tokens: 1000,
         });
-        res.json({ resume: response.choices[0].message.content });
+        console.log('completion.choices[0].message.content');
+        console.log(completion.choices[0].message.content);
+        console.log('completion.choices[0].message.content');
+        const structuredResume = extractSections(completion.choices[0].message.content || '');
+        console.log('structuredResume');
+        console.log(structuredResume);
+        console.log('structuredResume');
+        yield new Job({
+            description,
+            resume: cleanedResume,
+            updatedResume: structuredResume,
+        }).save();
+        res.json({ resume: structuredResume });
     }
     catch (error) {
         console.error('Error generating resume:', error);
         res.status(500).json({ error: 'Error generating resume' });
     }
 }));
-const normalizeText = (text) => {
-    return text
-        .replace(/[^\x00-\x7F]/g, '')
-        .replace(/\n•/g, '\n-')
-        .replace(/\s+/g, ' ')
-        .trim();
-};
 const USER_NAME = process.env.USER_NAME || 'Your Name';
 const USER_LOCATION = process.env.USER_LOCATION || 'Location';
 const GITHUB_URL = process.env.GITHUB_URL || 'https://github.com/';
@@ -86,144 +118,152 @@ const LINKEDIN_URL = process.env.LINKEDIN_URL || 'https://linkedin.com';
 const EMAIL = process.env.EMAIL || 'your@email.com';
 const PHONE = process.env.PHONE || '000-000-0000';
 const USER_TITLE = process.env.PHONE || 'WEB DEVELOPER';
+const PDF_MARGINS = { top: 40, left: 50, right: 50, bottom: 40 };
+const FONT_SETTINGS = {
+    primary: 'Helvetica',
+    bold: 'Helvetica-Bold',
+    sizes: { header: 20, sectionTitle: 12, body: 11, footer: 9 },
+};
+const COLORS = {
+    primary: '#333',
+    secondary: '#444',
+    accent: '#888',
+};
+const CONTACT_INFO = {
+    name: process.env.USER_NAME || 'Your Name',
+    title: process.env.USER_TITLE || 'Web Developer',
+    location: process.env.USER_LOCATION || 'City, Country',
+    links: [
+        { text: 'GitHub', link: process.env.GITHUB_URL },
+        { text: 'Portfolio', link: process.env.PORTFOLIO_URL },
+        { text: 'LinkedIn', link: process.env.LINKEDIN_URL },
+    ],
+    email: process.env.EMAIL || 'email@example.com',
+    phone: process.env.PHONE || '+1 234 567 890',
+};
 app.post('/export-pdf', (req, res) => __awaiter(void 0, void 0, void 0, function* () {
-    console.log('📥 Received Resume Data:', JSON.stringify(req.body, null, 2));
-    const { summary, experience, projects, coreCompetencies, certifications, keyCompetencies, education, whyCompany, } = req.body;
-    if (!summary || !experience || !coreCompetencies || !education) {
-        console.error('❌ Missing required resume sections:', {
-            summary,
-            experience,
-            coreCompetencies,
-            education,
-        });
-        res.status(400).json({ error: 'Missing required resume sections.' });
-        return;
-    }
-    const doc = new pdfkit_1.default({
-        size: 'A4',
-        margins: { top: 40, left: 50, right: 50, bottom: 40 },
-    });
-    res.setHeader('Content-Disposition', 'attachment; filename="optimized_resume.pdf"');
-    res.setHeader('Content-Type', 'application/pdf');
-    doc.pipe(res);
-    // Header Section
-    doc
-        .font('Helvetica-Bold')
-        .fontSize(20)
-        .fillColor('#333')
-        .text(`${USER_NAME} · ${USER_TITLE}`, { align: 'left' });
-    // Contact Information with hyperlinks
-    const contactLine = [
-        USER_LOCATION,
-        { text: 'GitHub', link: GITHUB_URL },
-        { text: 'Portfolio', link: PORTFOLIO_URL },
-        { text: 'LinkedIn', link: LINKEDIN_URL },
-        EMAIL,
-        PHONE,
-    ];
-    let contactY = doc.y;
-    doc.font('Helvetica').fontSize(10).fillColor('#444');
-    contactLine.forEach((item, index) => {
-        if (typeof item === 'string') {
-            doc.text(index === 0 ? item : `- ${item}`, {
-                continued: index !== contactLine.length - 1,
-                link: item.startsWith('http') ? item : undefined,
-                underline: item.startsWith('http'),
-            });
-        }
-        else {
-            doc.text(index === 0 ? item.text : `- ${item.text}`, {
-                continued: index !== contactLine.length - 1,
-                link: item.link,
-                underline: true,
-            });
-        }
-    });
-    doc.moveDown(1.5);
-    // Improved section handler with proper formatting
-    const addSection = (title, content) => {
-        if (!content || content.trim() === 'N/A')
+    try {
+        const { summary, experience, keyCompetencies, whyCompany } = req.body;
+        if (!summary || !experience) {
+            res.status(400).json({ error: 'Missing required resume sections' });
             return;
-        doc
-            .moveDown(0.8)
-            .font('Helvetica-Bold')
-            .fontSize(12)
-            .fillColor('#333')
-            .text(title.toUpperCase(), { underline: true })
-            .moveDown(0.5);
-        doc.font('Helvetica').fontSize(11).fillColor('#000');
-        const lines = content.split('\n').filter((line) => line.trim() !== '');
-        lines.forEach((line) => {
-            const isExperienceSection = [
-                'PROFESSIONAL EXPERIENCE',
-                'EDUCATION',
-            ].includes(title);
-            const isBullet = line.trim().startsWith('•');
-            if (isBullet) {
-                const bulletContent = line.trim().substring(1).trim();
-                const colonIndex = bulletContent.indexOf(':');
-                if (colonIndex !== -1 && title === 'KEY COMPETENCIES') {
-                    const [boldText, regularText] = bulletContent.split(/:(.+)/);
-                    doc
-                        .font('Helvetica-Bold')
-                        .text(`• ${boldText}:`, { indent: 15, continued: true })
-                        .font('Helvetica')
-                        .text(regularText || '');
-                }
-                else {
-                    doc.text(`• ${bulletContent}`, { indent: 15 });
-                }
-            }
-            else if (isExperienceSection) {
-                // Handle company/dates formatting
-                const [positionInfo, dates] = line.split(/(?<=[a-zA-Z])\s*-\s*(?=\d)/);
-                if (positionInfo && dates) {
-                    doc
-                        .font('Helvetica-Bold')
-                        .text(positionInfo.trim(), { continued: true })
-                        .font('Helvetica')
-                        .text(`   ${dates.trim()}`, { align: 'right' });
-                }
-                else {
-                    doc.font('Helvetica-Bold').text(line.trim());
-                }
-            }
-            else if (title === 'EDUCATION') {
-                const [degree, university] = line.split(/(?:\t| {2,})/);
-                doc
-                    .font('Helvetica-Bold')
-                    .text(degree.trim(), { continued: true })
-                    .font('Helvetica')
-                    .text(university.trim(), { align: 'right' });
-            }
-            else {
-                doc.text(line.trim());
-            }
-            doc.moveDown(0.4);
+        }
+        const doc = new pdfkit_1.default({
+            size: 'A4',
+            margins: { top: 40, left: 50, right: 50, bottom: 40 },
         });
-        doc.moveDown(0.8);
-    };
-    // Add sections in order
-    addSection('SUMMARY', summary);
-    addSection('PROFESSIONAL EXPERIENCE', experience);
-    addSection('PROJECTS AND CONTRIBUTIONS', projects);
-    addSection('CORE COMPETENCIES & TECHNICAL SKILLS', coreCompetencies);
-    addSection('CERTIFICATION AND TRAINING', certifications);
-    addSection('KEY COMPETENCIES', keyCompetencies);
-    addSection('EDUCATION', education);
-    // Custom Why Company section
-    if (whyCompany) {
-        const [companyName, reason] = whyCompany
-            .split(/[?]/)
-            .map((s) => s.trim());
-        addSection(`WHY ${companyName.toUpperCase()}?`, reason);
+        res.setHeader('Content-Disposition', 'attachment; filename="optimized_resume.pdf"');
+        res.setHeader('Content-Type', 'application/pdf');
+        doc.pipe(res);
+        doc
+            .font(FONT_SETTINGS.bold)
+            .fontSize(FONT_SETTINGS.sizes.header)
+            .fillColor(COLORS.primary)
+            .text(`${CONTACT_INFO.name} · ${CONTACT_INFO.title}`, { align: 'left' });
+        doc
+            .font(FONT_SETTINGS.primary)
+            .fontSize(FONT_SETTINGS.sizes.body - 1)
+            .fillColor(COLORS.secondary)
+            .moveDown(0.5);
+        const contactItems = [
+            CONTACT_INFO.location,
+            ...CONTACT_INFO.links,
+            CONTACT_INFO.email,
+            CONTACT_INFO.phone,
+        ];
+        contactItems.forEach((item, index) => {
+            const isLink = typeof item !== 'string';
+            const text = isLink ? item.text : item;
+            const options = {
+                continued: index < contactItems.length - 1,
+                link: isLink ? item.link : undefined,
+                underline: isLink,
+            };
+            doc.text(index === 0 ? text : `- ${text}`, options);
+        });
+        doc.moveDown(1.5);
+        const addSection = (title, content) => {
+            if (!(content === null || content === void 0 ? void 0 : content.trim()) || content.trim() === 'N/A')
+                return;
+            doc
+                .font(FONT_SETTINGS.bold)
+                .fontSize(FONT_SETTINGS.sizes.sectionTitle)
+                .fillColor(COLORS.primary)
+                .text(title.toUpperCase(), { underline: true })
+                .moveDown(0.5);
+            doc
+                .font(FONT_SETTINGS.primary)
+                .fontSize(FONT_SETTINGS.sizes.body)
+                .fillColor(COLORS.primary);
+            content
+                .split('\n')
+                .filter((line) => line.trim())
+                .forEach((line) => {
+                const isBullet = line.trim().startsWith('•');
+                const isExperience = title === 'PROFESSIONAL EXPERIENCE';
+                if (isBullet) {
+                    handleBulletPoint(doc, line, title);
+                }
+                else if (isExperience) {
+                    handleExperienceLine(doc, line);
+                }
+                else {
+                    doc.text(line.trim());
+                }
+                doc.moveDown(0.4);
+            });
+            doc.moveDown(0.8);
+        };
+        addSection('SUMMARY', summary);
+        addSection('PROFESSIONAL EXPERIENCE', experience);
+        if (keyCompetencies)
+            addSection('KEY COMPETENCIES', keyCompetencies);
+        if (whyCompany) {
+            const [companyName, ...reasonParts] = whyCompany.split('?');
+            const reason = reasonParts.join('?').trim(); // Handle company names with '?'
+            addSection(`WHY ${companyName.toUpperCase()}?`, reason);
+        }
+        doc
+            .addPage()
+            .fontSize(FONT_SETTINGS.sizes.footer)
+            .fillColor(COLORS.accent)
+            .text('Generated by ATS Optimizer', { align: 'center' });
+        doc.end();
     }
-    // Footer
-    doc
-        .moveDown(2)
-        .fontSize(9)
-        .fillColor('#888')
-        .text('Generated by ATS Optimizer', { align: 'center' });
-    doc.end();
+    catch (error) {
+        console.error('PDF Generation Error:', error);
+        res.status(500).json({ error: 'Failed to generate PDF' });
+    }
 }));
+const handleBulletPoint = (doc, line, title) => {
+    const bulletContent = line.trim().substring(1).trim();
+    const colonIndex = bulletContent.indexOf(':');
+    if (colonIndex !== -1 && title === 'KEY COMPETENCIES') {
+        const [boldText, regularText] = bulletContent.split(/:(.+)/);
+        doc
+            .font(FONT_SETTINGS.bold)
+            .text(`• ${boldText}:`, { indent: 15, continued: true })
+            .font(FONT_SETTINGS.primary)
+            .text(regularText || '');
+    }
+    else {
+        doc.text(`• ${bulletContent}`, { indent: 15 });
+    }
+};
+const handleExperienceLine = (doc, line) => {
+    console.log('handleExperienceLine');
+    console.log(line);
+    console.log('handleExperienceLine');
+    const experienceMatch = line.match(/(.*?)\s*-\s*([A-Za-z]+\s\d{4}\s*-\s*[A-Za-z]+\s\d{4})/);
+    if (experienceMatch) {
+        const [, position, dates] = experienceMatch;
+        doc.font(FONT_SETTINGS.bold).text(position.trim(), { continued: true });
+        doc
+            .font(FONT_SETTINGS.primary)
+            .text(`  ${dates.trim()}`, { align: 'right' });
+    }
+    else {
+        doc.font(FONT_SETTINGS.bold).text(line.trim());
+    }
+};
 app.listen(5001, () => console.log('Server running on port 5001'));

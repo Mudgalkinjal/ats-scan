@@ -1,7 +1,7 @@
 import React from 'react'
 import { BrowserRouter as Router, Route, Routes } from 'react-router-dom'
 import Home from './pages/Home'
-import ResumePage from './pages/Resume'
+import { ResumePage } from './pages/Resume'
 import UploadResume from './components/UploadResume'
 
 const App: React.FC = () => {

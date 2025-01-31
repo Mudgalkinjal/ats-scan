@@ -1,4 +1,3 @@
-// Home.tsx
 import React, { useState } from 'react'
 import axios from 'axios'
 import { useNavigate } from 'react-router-dom'
@@ -6,13 +5,21 @@ import UploadResume from '../components/UploadResume'
 
 const Home: React.FC = () => {
   const [jobDesc, setJobDesc] = useState('')
+  const [resume, setResume] = useState('')
+
   const navigate = useNavigate()
 
   const handleScan = async () => {
     const res = await axios.post('http://localhost:5001/scan', {
+      resumeText: resume,
       description: jobDesc,
     })
+    console.log('API Response:', res.data)
     navigate('/resume', { state: { resume: res.data.resume } })
+  }
+
+  const handleResumeChange = async (text: string) => {
+    setResume(text)
   }
 
   return (
@@ -23,7 +30,7 @@ const Home: React.FC = () => {
         </h1>
 
         <div className="bg-white rounded-xl shadow-lg p-6 space-y-8">
-          <UploadResume />
+          <UploadResume onResumeChange={handleResumeChange} />
 
           <div className="space-y-6">
             <div>
