@@ -1,108 +1,91 @@
 import React from 'react'
 import { useLocation, Link } from 'react-router-dom'
 import axios from 'axios'
+import dotenv from 'dotenv'
+dotenv.config()
 
 const ResumePage: React.FC = () => {
   const location = useLocation()
   const { resume } = location.state || {}
 
+  const sanitizeText = (text: string) => {
+    return text
+      .replace(/[\u0000-\u001F\u007F-\u009F]/g, '')
+      .replace(/[^\x20-\x7E\n]/g, '')
+      .replace(/\n\s*\n/g, '\n\n')
+      .replace(/\s+/g, ' ')
+      .trim()
+  }
+
+  const formatResumeWithHeadings = (text: string) => {
+    const sectionHeadings = process.env.SECTION_HEADINGS?.split('|') || []
+
+    sectionHeadings.forEach((heading) => {
+      const regex = new RegExp(`(${heading})`, 'g')
+      text = text.replace(regex, '\n\n$1\n\n')
+    })
+
+    return text.trim()
+  }
+
+  const removeDuplicates = (text: string) => {
+    return text
+      .split('\n')
+      .filter((line, index, arr) => line !== arr[index - 1])
+      .join('\n')
+  }
+
+  const extractSection = (text: string, start: string, end?: string) => {
+    const regex = new RegExp(`${start}([\\s\\S]*?)${end ? end : '$'}`, 'i')
+    const match = text.match(regex)
+    return match ? match[1].trim() : ''
+  }
+
+  const cleanedResumeText = formatResumeWithHeadings(
+    sanitizeText(removeDuplicates(resume))
+  )
+
+  const structuredResume = {
+    summary: extractSection(
+      cleanedResumeText,
+      'SUMMARY',
+      'PROFESSIONAL EXPERIENCE'
+    ),
+    experience: extractSection(
+      cleanedResumeText,
+      'PROFESSIONAL EXPERIENCE',
+      'PROJECTS AND CONTRIBUTIONS'
+    ),
+    projects: extractSection(
+      cleanedResumeText,
+      'PROJECTS AND CONTRIBUTIONS',
+      'CORE COMPETENCIES & TECHNICAL SKILLS'
+    ),
+    coreCompetencies: extractSection(
+      cleanedResumeText,
+      'CORE COMPETENCIES & TECHNICAL SKILLS',
+      'CERTIFICATION AND TRAINING'
+    ),
+    certifications: extractSection(
+      cleanedResumeText,
+      'CERTIFICATION AND TRAINING',
+      'KEY COMPETENCIES'
+    ),
+    keyCompetencies: extractSection(
+      cleanedResumeText,
+      'KEY COMPETENCIES',
+      'EDUCATION'
+    ),
+    education: extractSection(cleanedResumeText, 'EDUCATION', 'WHY '),
+    whyCompany: extractSection(cleanedResumeText, 'WHY '),
+  }
+  const formattedResume = formatResumeWithHeadings(
+    sanitizeText(removeDuplicates(resume || ''))
+  )
   const exportPDF = async (resumeText: string) => {
     if (!resumeText) {
       console.error('❌ Error: Resume text is missing')
       return
-    }
-
-    const sanitizeText = (text: string) => {
-      return text
-        .replace(/[\u0000-\u001F\u007F-\u009F]/g, '')
-        .replace(/[^\x20-\x7E\n]/g, '')
-        .replace(/\n\s*\n/g, '\n\n')
-        .replace(/\s+/g, ' ')
-        .trim()
-    }
-
-    const formatResumeWithHeadings = (text: string) => {
-      // Define the section headings to look for
-      const sectionHeadings = [
-        'SUMMARY',
-        'PROFESSIONAL EXPERIENCE',
-        'Software Engineer, Full Stack | Ernst & Young - May 2022 - October 2023',
-        'Software Engineer, Front End | Barracuda Networks - March 2016 - January 2021',
-        'ASSOCIATE WEB DEVELOPER | Transworld Technologies - January 2013 - January 2014',
-        'PROJECTS AND CONTRIBUTIONS',
-        'CORE COMPETENCIES & TECHNICAL SKILLS',
-        'CERTIFICATION AND TRAINING',
-        'KEY COMPETENCIES',
-        'EDUCATION',
-        'WHY ',
-      ]
-
-      // Add line breaks before each heading
-      sectionHeadings.forEach((heading) => {
-        const regex = new RegExp(`(${heading})`, 'g') // Match the heading
-        text = text.replace(regex, '\n\n$1\n\n') // Ensure new lines before and after
-      })
-
-      return text.trim()
-    }
-
-    console.log('------')
-    console.log(sanitizeText)
-    console.log('------')
-
-    const removeDuplicates = (text: string) => {
-      return text
-        .split('\n')
-        .filter((line, index, arr) => line !== arr[index - 1])
-        .join('\n')
-    }
-
-    const cleanedResumeText = formatResumeWithHeadings(
-      sanitizeText(removeDuplicates(resumeText))
-    )
-    console.log('------')
-    console.log(cleanedResumeText)
-    console.log('------')
-
-    const extractSection = (text: string, start: string, end?: string) => {
-      const regex = new RegExp(`${start}([\\s\\S]*?)${end ? end : '$'}`, 'i')
-      const match = text.match(regex)
-      return match ? match[1].trim() : ''
-    }
-
-    const structuredResume = {
-      summary: extractSection(
-        cleanedResumeText,
-        'SUMMARY',
-        'PROFESSIONAL EXPERIENCE'
-      ),
-      experience: extractSection(
-        cleanedResumeText,
-        'PROFESSIONAL EXPERIENCE',
-        'PROJECTS AND CONTRIBUTIONS'
-      ),
-      projects: extractSection(
-        cleanedResumeText,
-        'PROJECTS AND CONTRIBUTIONS',
-        'CORE COMPETENCIES & TECHNICAL SKILLS'
-      ),
-      coreCompetencies: extractSection(
-        cleanedResumeText,
-        'CORE COMPETENCIES & TECHNICAL SKILLS',
-        'CERTIFICATION AND TRAINING'
-      ),
-      certifications: extractSection(
-        cleanedResumeText,
-        'CERTIFICATION AND TRAINING',
-        'KEY COMPETENCIES'
-      ),
-      keyCompetencies: extractSection(
-        cleanedResumeText,
-        'KEY COMPETENCIES',
-        'EDUCATION'
-      ),
-      education: extractSection(cleanedResumeText, 'EDUCATION', 'WHY '),
-      whyCompany: extractSection(cleanedResumeText, 'WHY '),
     }
 
     Object.keys(structuredResume).forEach((key) => {
@@ -150,7 +133,7 @@ const ResumePage: React.FC = () => {
         <div className="bg-white rounded-xl shadow-lg p-6 space-y-6">
           <div className="bg-gray-50 p-4 rounded-lg">
             <pre className="whitespace-pre-wrap font-mono text-sm overflow-auto max-h-96">
-              {resume}
+              {formattedResume}
             </pre>
           </div>
 

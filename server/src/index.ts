@@ -58,19 +58,7 @@ app.post(
 My Current Resume: ${originalJob.resume}
 Job Description: ${description}
 
-Resume Requirements:
-
-Professional Summary (110 words): Craft a compelling summary highlighting my expertise, key skills, and relevant experience. Use the most impactful keywords from the job description.
-Experience:
-Company 1 & 2 (180-200 words each): Detail my contributions, achievements, and impact. Ensure it aligns with the job description and includes relevant keywords.
-Company 3 (40-50 words): Keep concise but highlight key responsibilities.
-Projects and Contributions (50-70 words): Summarize key projects, technologies used, and contributions aligning with the job description.
-Core Competencies (80-120 words): List relevant skills and expertise using industry keywords from the job description.
-Certifications and Training: Do not modify. Keep the same wording as my current resume.
-Key Competencies (50-60 words): Focus on job-relevant competencies.
-Education: Do not change; keep as is.
-WHY <Company Name>? (60-80 words): Write a persuasive response on why I am interested in this company, referencing their values, culture, and role alignment.
-Ensure the resume layout remains identical to my original resume while optimizing content for ATS parsing. Prioritize clarity, relevance, and action-driven language. Maintain a professional and concise tone.`
+Resume Requirements:${process.env.resumeReq}`
 
       const response = await openai.chat.completions.create({
         model: 'gpt-4',
